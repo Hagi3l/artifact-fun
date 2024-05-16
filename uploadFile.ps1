@@ -1,9 +1,34 @@
+# Function to load .env file
+function Load-EnvFile {
+    param (
+        [string]$filePath
+    )
+
+    if (Test-Path $filePath) {
+        $envVars = Get-Content -Path $filePath | ForEach-Object {
+            if ($_ -match "^\s*([^#\s]+)\s*=\s*(.+?)\s*$") {
+                $name = $matches[1]
+                $value = $matches[2]
+                [System.Environment]::SetEnvironmentVariable($name, $value)
+            }
+        }
+        Write-Host "Environment variables loaded from $filePath"
+    } else {
+        Write-Host "Error: .env file not found at $filePath"
+        exit
+    }
+}
+
+# Load environment variables from .env file
+$envFilePath = ".env"
+Load-EnvFile -filePath $envFilePath
+
 # Configuration Variables
-$accessToken = ""
+$accessToken = $env:ACCESS_TOKEN
 $baseUri = "https://kangaroo.jfrog.io/artifactory"
-$repositoryName = "prod"
-$filePath = "D:\Projects\artifactory\example.txt"
-$fileName = "example.txt"
+$repositoryName = "devtest"
+$filePath = "D:\Projects\artifactory\builds\m2m-1.37.7z"
+$fileName = "m2m-1.37.7z"
 $fileChecksum = ""  # Replace with the actual checksum of the file
 
 # Headers for Authentication and Checksum
@@ -13,7 +38,7 @@ $headers = @{
 }
 
 # Full URL to upload the file
-$fileUri = "$baseUri/$repositoryName/testing/$fileName"
+$fileUri = "$baseUri/$repositoryName/builds/$fileName"
 
 try {
     # Read the file content
