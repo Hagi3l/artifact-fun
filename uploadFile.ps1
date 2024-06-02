@@ -25,8 +25,8 @@ Load-EnvFile -filePath $envFilePath
 
 # Configuration Variables
 $accessToken = $env:ACCESS_TOKEN
-$baseUri = "https://kangaroo.jfrog.io/artifactory"
-$repositoryName = "devtest"
+$baseUri = "https://kangaroo1.jfrog.io/artifactory"
+$repositoryName = "7-year-archive"
 $filePath = "D:\Projects\artifactory\builds\m2m-1.37.7z"
 $fileName = "m2m-1.37.7z"
 $fileChecksum = ""  # Replace with the actual checksum of the file

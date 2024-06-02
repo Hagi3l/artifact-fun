@@ -24,17 +24,20 @@ $envFilePath = ".env"
 Load-EnvFile -filePath $envFilePath
 
 # Variables
-$artifactoryUrl = "https://kangaroo.jfrog.io/artifactory"
+$artifactoryUrl = "https://kangaroo1.jfrog.io/artifactory"
 $accessToken = $env:ACCESS_TOKEN
-$sourceRepo = "devtest"
-$targetRepo = "preprod"
-$buildsFolderPath = "builds"
+$sourceRepo = "7-year-archive"
+#$sourceRepo = "preprod"
+#$targetRepo = "preprod"
+#$targetRepo = "7-year-archive"
+$targetRepo = "devtest"
+$filePath = "builds/m2m-1.37.7z"
 
 # Debug output to verify variables
 Write-Host "Artifactory URL: $artifactoryUrl"
 Write-Host "Source Repo: $sourceRepo"
 Write-Host "Target Repo: $targetRepo"
-Write-Host "Builds Folder Path: $buildsFolderPath"
+Write-Host "File Path: $filePath"
 
 # Function to validate access token
 function Validate-AccessToken {
@@ -66,7 +69,7 @@ function List-Artifacts {
         [string]$folderPath
     )
 
-    $uri = "$artifactoryUrl/$repo/$folderPath?list&deep=1"
+    $uri = "$artifactoryUrl/api/storage/$repo/$folderPath?list&deep=1"
     $headers = @{
         "Authorization" = "Bearer $accessToken"
     }
@@ -75,13 +78,7 @@ function List-Artifacts {
         Write-Host "Requesting artifacts list from $uri"
         $response = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get
         Write-Host "Response: $($response | ConvertTo-Json -Depth 5)" # Debug output
-        if ($response.files) {
-            Write-Host "Artifacts found in $repo/$folderPath -"
-            $response.files | ForEach-Object { Write-Host $_.uri }
-        } else {
-            Write-Host "No artifacts found in $repo/$folderPath."
-        }
-        return $response.files
+        return $response.children
     } catch {
         Write-Host "Error: Failed to list artifacts. Status Code: $($_.Exception.Response.StatusCode)"
         Write-Host "Error Message: $($_.Exception.Message)"
@@ -96,7 +93,7 @@ function Get-ArtifactDetails {
         [string]$artifactPath
     )
 
-    $uri = "$artifactoryUrl/$repo/$artifactPath"
+    $uri = "$artifactoryUrl/api/storage/$repo/$artifactPath"
     $headers = @{
         "Authorization" = "Bearer $accessToken"
     }
@@ -104,6 +101,7 @@ function Get-ArtifactDetails {
     try {
         Write-Host "Requesting artifact details from $uri"
         $response = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get
+        Write-Host "Artifact details: $($response | ConvertTo-Json -Depth 5)" # Debug output
         return $response
     } catch {
         Write-Host "Error: Failed to get artifact details. Status Code: $($_.Exception.Response.StatusCode)"
@@ -112,75 +110,66 @@ function Get-ArtifactDetails {
     }
 }
 
-# Function to copy artifact to the target repository
-function Copy-Artifact {
+# Function to move artifact to the target repository with conflict handling
+function Move-Artifact {
     param (
         [string]$sourceRepo,
         [string]$targetRepo,
         [string]$artifactPath
     )
 
-    $uri = "$artifactoryUrl/api/copy/$sourceRepo/$artifactPath?to=/$targetRepo/$artifactPath"
+    $uri = "$artifactoryUrl/api/move/$sourceRepo/$artifactPath" + "?to=/$targetRepo/$artifactPath"
+    
     $headers = @{
         "Authorization" = "Bearer $accessToken"
     }
 
     try {
-        Write-Host "Copying artifact from $sourceRepo/$artifactPath to $targetRepo/$artifactPath"
+        Write-Host "Moving artifact from $sourceRepo/$artifactPath to $targetRepo/$artifactPath"
         $response = Invoke-RestMethod -Uri $uri -Headers $headers -Method Post
+        Write-Host "Move response: $($response | ConvertTo-Json -Depth 5)" # Debug output
         return $response
     } catch {
-        Write-Host "Error: Failed to copy artifact. Status Code: $($_.Exception.Response.StatusCode)"
+        Write-Host "Error: Failed to move artifact. Status Code: $($_.Exception.Response.StatusCode)"
+        if ($_.Exception.Response.StatusCode -eq 409) {
+            Write-Host "Conflict detected: The file already exists in the target repository."
+        }
         Write-Host "Error Message: $($_.Exception.Message)"
         return $null
     }
 }
 
 # Main Script
-Write-Host "Finding the latest artifact in $sourceRepo/$buildsFolderPath..."
+Write-Host "Finding the artifact $filePath in $sourceRepo..."
 
 # Validate access token
 Validate-AccessToken
 
-# List artifacts in the builds folder
-$artifacts = List-Artifacts -repo $sourceRepo -folderPath $buildsFolderPath
+# Get artifact details
+$artifactDetails = Get-ArtifactDetails -repo $sourceRepo -artifactPath $filePath
 
-if ($artifacts) {
-    # Initialize variable to hold the latest artifact details
-    $latestArtifact = $null
-    $latestModifiedTime = [datetime]::MinValue
+if ($artifactDetails) {
+    Write-Host "Artifact found: $filePath"
 
-    # Loop through artifacts to find the latest one
-    foreach ($artifact in $artifacts) {
-        if ($artifact.uri) {
-            $artifactDetails = Get-ArtifactDetails -repo $sourceRepo -artifactPath ($buildsFolderPath + $artifact.uri)
-            if ($artifactDetails) {
-                $modifiedTime = [datetime]$artifactDetails.lastModified
-                if ($modifiedTime -gt $latestModifiedTime) {
-                    $latestModifiedTime = $modifiedTime
-                    $latestArtifact = $artifact.uri
-                }
-            }
-        }
+    # List artifacts in the target folder to ensure it's really empty
+    $targetArtifacts = List-Artifacts -repo $targetRepo -folderPath "builds"
+    if ($targetArtifacts) {
+        Write-Host "Artifacts already in target folder:"
+        $targetArtifacts | ForEach-Object { Write-Host $_.uri }
+    } else {
+        Write-Host "No artifacts found in the target folder."
     }
 
-    if ($latestArtifact) {
-        $latestArtifactPath = $latestArtifact.TrimStart('/')
-        Write-Host "Latest artifact found: $latestArtifactPath"
+    # Move the artifact to the target repository
+    $moveResult = Move-Artifact -sourceRepo $sourceRepo -targetRepo $targetRepo -artifactPath $filePath
 
-        # Copy the latest artifact to the target repository
-        $copyResult = Copy-Artifact -sourceRepo $sourceRepo -targetRepo $targetRepo -artifactPath $latestArtifactPath
-
-        if ($copyResult) {
-            Write-Host "Artifact successfully promoted from $sourceRepo to $targetRepo"
-        } else {
-            Write-Host "Failed to promote artifact from $sourceRepo to $targetRepo"
-        }
+    if ($moveResult) {
+        Write-Host "Artifact successfully moved from $sourceRepo to $targetRepo"
     } else {
-        Write-Host "No artifacts found in $sourceRepo/$buildsFolderPath"
+        Write-Host "Failed to move artifact from $sourceRepo to $targetRepo"
     }
 } else {
-    Write-Host "Failed to list artifacts in $sourceRepo/$buildsFolderPath"
+    Write-Host "Artifact $filePath not found in $sourceRepo"
 }
 
 Write-Host "Artifact promotion script completed."

@@ -25,8 +25,8 @@ Load-EnvFile -filePath $envFilePath
 
 # Configuration Variables
 $accessToken = $env:ACCESS_TOKEN
-$baseUri = "https://kangaroo.jfrog.io/artifactory"
-$repositoryName = "7-year-archive"
+$baseUri = "https://kangaroo1.jfrog.io/artifactory"
+$repositoryName = "preprod"
 $folderName = "builds/"
 
 # Headers for Authentication
